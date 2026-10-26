@@ -8,7 +8,7 @@ const T = {
     ex: ['我觉得美联储下个月降息，押 50 块', '比特币年底到不了10万，押20块', 'buy $100 of Tesla if it dips'],
     market: '市场', side: '方向', amount: '金额', fee: '手续费', price: '示例价格', qty: '份数', cond: '条件', dip: (p) => `跌 ${p}% 再买`,
     yes: '会发生 (YES)', no: '不会发生 (NO)', buy: '买入', sell: '卖出', confirm: '确认下单（模拟）', cancel: '取消',
-    e_empty: '请先写点什么', e_no_market: '没认出是哪个市场，试试写“美联储”“比特币”“特斯拉”', e_no_amount: '没看到金额，加一句“押 50 块”', e_funds: '余额不够，先充值',
+    e_empty: '请先写点什么', e_no_market: '没认出是哪个市场。', dym: '你是不是想说：', e_no_amount: '没看到金额，加一句“押 50 块”', e_funds: '余额不够，先充值',
     mk: '事件市场', sample: '示例数据', stocks: '股票（示例价格）', chance: '概率',
     radar: '🔍 价差雷达（练习套利）', rIntro: '同一件事，两个平台价格不同。两边各买一边，结果出来总能拿回 $1/对。下面算的是扣掉两边手续费后的结果（$100 练习）。',
     va: '平台A YES', vb: '平台B YES', spread: '价差', net: '扣费后', practice: '练习套利', pf: '我的持仓', none: '还没有持仓', feesPaid: '已付手续费', pl: '盈亏（按示例价格）', reset: '全部重置',
@@ -22,7 +22,7 @@ const T = {
     ex: ['I think the Fed cuts rates next month, bet $50', 'Bitcoin will not hit 100k, bet $20', 'buy $100 of Tesla if it dips'],
     market: 'Market', side: 'Side', amount: 'Amount', fee: 'Fee', price: 'Example price', qty: 'Shares', cond: 'Condition', dip: (p) => `buy after a ${p}% dip`,
     yes: 'Will happen (YES)', no: 'Won\'t happen (NO)', buy: 'Buy', sell: 'Sell', confirm: 'Confirm (paper)', cancel: 'Cancel',
-    e_empty: 'Type something first', e_no_market: 'Could not tell which market. Try "Fed", "Bitcoin", "Tesla"', e_no_amount: 'No amount found. Add "bet $50"', e_funds: 'Not enough balance. Add money first',
+    e_empty: 'Type something first', e_no_market: 'Could not tell which market.', dym: 'Did you mean:', e_no_amount: 'No amount found. Add "bet $50"', e_funds: 'Not enough balance. Add money first',
     mk: 'Event markets', sample: 'Example data', stocks: 'Stocks (example prices)', chance: 'chance',
     radar: '🔍 Price-gap radar (practice arb)', rIntro: 'Same event, two venues, different prices. Buy one side on each and you always get $1 per pair back. Numbers below are after both fees ($100 practice).',
     va: 'Venue A YES', vb: 'Venue B YES', spread: 'Gap', net: 'After fees', practice: 'Practice arb', pf: 'My positions', none: 'No positions yet', feesPaid: 'Fees paid', pl: 'P&L (example prices)', reset: 'Reset all',
@@ -94,7 +94,10 @@ document.addEventListener('click', (e) => {
     setTimeout(() => { S.balance = Core.round2(S.balance + a); save(); dep.step = 3; render(); }, 700); return; }
   else if (e.target.classList.contains('ex')) { $('#itext').value = e.target.textContent; return; }
   else if (id === 'iParse') { const r = Core.parseIntent($('#itext').value); const txt = $('#itext').value;
-    if (r.ok) { r.price = sidePrice(r.market, r.side); r.qty = Core.round2((r.amount - r.fee) / r.price); if (r.condition) r.target = Core.dipTarget(r.price, r.condition.pct); pending = r; msg = ''; } else { pending = null; msg = L['e_' + r.error]; } render(); $('#itext').value = txt; return; }
+    if (!r.ok && r.suggest) msg = L.e_no_market + '<br>' + L.dym + ' ' + r.suggest.map(id => `<button class="alt dym" data-id="${id}" style="padding:6px 10px;margin:4px">${nm(find(id))}</button>`).join('');
+    if (r.ok) { r.price = sidePrice(r.market, r.side); r.qty = Core.round2((r.amount - r.fee) / r.price); if (r.condition) r.target = Core.dipTarget(r.price, r.condition.pct); pending = r; msg = ''; } else { pending = null; if (!r.suggest) msg = L['e_' + r.error]; } render(); $('#itext').value = txt; return; }
+  else if (e.target.classList.contains('dym')) { const m = find(e.target.dataset.id), ta = $('#itext'), amt = Core.parseAmount(ta.value);
+    ta.value = (S.lang === 'zh' ? m.zh : m.en) + (amt ? (S.lang === 'zh' ? `，押 ${amt} 块` : `, bet $${amt}`) : ''); msg = ''; $('#iMsg').innerHTML = ''; $('#iParse').click(); return; }
   else if (id === 'iCancel') { pending = null; msg = ''; }
   else if (id === 'iConfirm') { const p = pending; if (p.amount > S.balance) { msg = L.e_funds; render(); return; }
     if (p.condition) { S.balance = Core.round2(S.balance - p.amount); S.orders.push({ market: p.market, amount: p.amount, pct: p.condition.pct, target: p.target, day: today() }); pending = null; msg = '✓ ' + L.orderPlaced; save(); fillOrders(); render(); return; }

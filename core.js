@@ -55,15 +55,26 @@
     }
     return best;
   }
+  // "Did you mean": char-overlap between each keyword (3+ chars) and same-length windows of the text.
+  function overlap(a, b) { const m = {}; for (const c of a) m[c] = (m[c] || 0) + 1; let n = 0; for (const c of b) if (m[c] > 0) { m[c]--; n++; } return n / a.length; }
+  function suggest(t) {
+    const l = t.toLowerCase(), all = [...STOCKS, ...MARKETS], scored = [];
+    for (const it of all) { let best = 0;
+      for (const k of it.kw) { if ([...k].length < 3) continue; const ch = [...l];
+        for (let i = 0; i + [...k].length <= ch.length; i++) best = Math.max(best, overlap(k, ch.slice(i, i + [...k].length).join(''))); }
+      if (best >= 0.6) scored.push([best, it.id]); }
+    scored.sort((a, b) => b[0] - a[0]);
+    return scored.length ? scored.slice(0, 3).map(x => x[1]) : ['fed-cut', 'btc-100k', 'TSLA'];
+  }
   function parseIntent(text) {
     const t = String(text || '').trim();
     if (!t) return { ok: false, error: 'empty' };
     const item = findItem(t);
-    if (!item) return { ok: false, error: 'no_market' };
+    if (!item) return { ok: false, error: 'no_market', suggest: suggest(t) };
     const amount = parseAmount(t.replace(/10万|100k|\$?90|2亿|\$?200m|2030/gi, ' '));
     if (!amount || amount <= 0) return { ok: false, error: 'no_amount', market: item.id };
     const l = t.toLowerCase();
-    const neg = /不会|不可能|不降|不涨|不下|不赢|没有|反对|做空|卖空|short|won't|will not|not |no\b|against|sell/.test(l);
+    const neg = /不会|不了|不到|不破|不超过|不可能|不降|不涨|不下|不赢|没有|反对|做空|卖空|short|won't|will not|not |no\b|against|sell/.test(l);
     let side;
     if (item.kind === 'stock') side = /short|sell|做空|卖空|卖/.test(l) ? 'sell' : 'buy';
     else side = neg ? 'no' : 'yes';
@@ -92,6 +103,6 @@
   const ORDER_DAYS = 14; // unfilled dip orders expire and refund after 14 demo days
   function orderStatus(order, price, day) { if (shouldFill(order, price)) return 'fill'; return day - order.day >= ORDER_DAYS ? 'expire' : 'wait'; }
   function pnl(pos, markPrice) { return round2(pos.qty * markPrice - pos.amount); }
-  const api = { FEE_BPS, MARKETS, STOCKS, VENUES, fee, arb, parseIntent, parseAmount, cnToNum, pnl, round2, priceAt, dayNum, dipTarget, shouldFill, hash, orderStatus, ORDER_DAYS };
+  const api = { FEE_BPS, MARKETS, STOCKS, VENUES, fee, arb, parseIntent, parseAmount, suggest, cnToNum, pnl, round2, priceAt, dayNum, dipTarget, shouldFill, hash, orderStatus, ORDER_DAYS };
   if (typeof module !== 'undefined') module.exports = api; else root.Core = api;
 })(this);
