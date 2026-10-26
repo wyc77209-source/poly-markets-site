@@ -13,7 +13,9 @@ const T = {
     radar: '🔍 价差雷达（练习套利）', rIntro: '同一件事，两个平台价格不同。两边各买一边，结果出来总能拿回 $1/对。下面算的是扣掉两边手续费后的结果（$100 练习）。',
     va: '平台A YES', vb: '平台B YES', spread: '价差', net: '扣费后', practice: '练习套利', pf: '我的持仓', none: '还没有持仓', feesPaid: '已付手续费', pl: '盈亏（按示例价格）', reset: '全部重置',
     feesT: '💰 收费说明（透明）', feesB: '我们只收一种看得见的费用：每笔成交金额的 0.30%（30 bps）。$100 收 $0.30。没有隐藏费用，不卖你的订单流（无 PFOF），不赚差价。这是演示，实际不收任何钱。',
-    done: '已下单（模拟）', orderPlaced: '已挂单：等价格跌下来自动买入（模拟），14 天没跌到就退钱',  expired: '挂单 14 天没成交，钱已退回', day: '演示第几天：', next: '⏭ 下一天（价格会变）', waitDip: (x) => `等价格跌到 ${x} 再买`, arbDone: '已记录练习套利' },
+    done: '已下单（模拟）', ifRight: '猜对了，你赚', ifWrong: '猜错了，你亏', ifUp: '如果涨 10%', ifDown: '如果跌 10%',
+    skip: '跳过', nextStep: '下一步', start: '开始玩', tourAgain: '再看一次教程',
+    tour: [['欢迎！这里全是假钱', '这是一个练习用的模拟游戏，不是交易所，不会用到你的真钱。'], ['① 先充一点假钱', '选银行卡或比特币，输入金额，余额马上到账（都是假的）。'], ['② 用一句话说出你的想法', '比如“我觉得美联储下个月降息，押 50 块”。我们会算好手续费，并告诉你猜对赚多少、猜错亏多少。'], ['③ 看看你的成绩', '在“我的持仓”里看赚了还是亏了。点“下一天”，价格会变。']], orderPlaced: '已挂单：等价格跌下来自动买入（模拟），14 天没跌到就退钱',  expired: '挂单 14 天没成交，钱已退回', day: '演示第几天：', next: '⏭ 下一天（价格会变）', waitDip: (x) => `等价格跌到 ${x} 再买`, arbDone: '已记录练习套利' },
   en: { banner: 'Paper demo · Not an exchange · Not advice / 模拟交易演示 · 非交易所 · 非投资建议', other: '中文',
     bal: 'My practice balance', fake: 'All fake money, just for practice', dep: 'Step 1: pick how to add money (pretend)', card: '💳 Bank card', btc: '₿ Bitcoin',
     amt: 'Step 2: type an amount', go: 'Add money', arrived: 'Money arrived!', newbal: 'New balance', again: 'Add more', adv: 'Advanced details (optional)',
@@ -27,10 +29,12 @@ const T = {
     radar: '🔍 Price-gap radar (practice arb)', rIntro: 'Same event, two venues, different prices. Buy one side on each and you always get $1 per pair back. Numbers below are after both fees ($100 practice).',
     va: 'Venue A YES', vb: 'Venue B YES', spread: 'Gap', net: 'After fees', practice: 'Practice arb', pf: 'My positions', none: 'No positions yet', feesPaid: 'Fees paid', pl: 'P&L (example prices)', reset: 'Reset all',
     feesT: '💰 Fees (transparent)', feesB: 'One visible fee only: 0.30% (30 bps) of each trade. $100 costs $0.30. No hidden fees, no selling your orders (no PFOF), no spread markup. This is a demo, nothing is actually charged.',
-    done: 'Order placed (paper)', orderPlaced: 'Order waiting: buys automatically if the price dips within 14 days, else refunded (paper)', expired: 'Order not filled in 14 days, money returned', day: 'Demo day:', next: '⏭ Next day (prices move)', waitDip: (x) => `buys when price ≤ ${x}`, arbDone: 'Practice arb recorded' },
+    done: 'Order placed (paper)', ifRight: 'If you are right, you win', ifWrong: 'If you are wrong, you lose', ifUp: 'If it goes up 10%', ifDown: 'If it goes down 10%',
+    skip: 'Skip', nextStep: 'Next', start: 'Let\'s go', tourAgain: 'Show tutorial again',
+    tour: [['Welcome! Everything here is fake money', 'This is a practice game, not an exchange. Your real money is never used.'], ['① Add some pretend money', 'Pick bank card or bitcoin, type an amount, and the balance shows up (all pretend).'], ['② Say your idea in one sentence', 'Like "buy $100 of Tesla if it dips". We show the fee and how much you could win or lose.'], ['③ Check your score', 'See wins and losses in My positions. Tap Next day and prices move.']], orderPlaced: 'Order waiting: buys automatically if the price dips within 14 days, else refunded (paper)', expired: 'Order not filled in 14 days, money returned', day: 'Demo day:', next: '⏭ Next day (prices move)', waitDip: (x) => `buys when price ≤ ${x}`, arbDone: 'Practice arb recorded' },
 };
 const S = Object.assign({ lang: 'zh', balance: 0, positions: [], feesPaid: 0, orders: [], dayOffset: 0 }, JSON.parse(localStorage.getItem('pm') || '{}'));
-let dep = { step: 1, method: null }, pending = null, msg = '';
+let tourStep = 0, dep = { step: 1, method: null }, pending = null, msg = '';
 const save = () => localStorage.setItem('pm', JSON.stringify(S));
 const t = () => T[S.lang];
 const money = (n) => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -64,6 +68,7 @@ function render() {
     <div class="item"><span>${L.amount}</span><b>${money(p.amount)}</b></div><div class="item"><span>${L.fee}</span><b>${p.feeBps} bps = ${money(p.fee)}</b></div>
     <div class="item"><span>${L.price} <span class="tag">${L.sample}</span></span><b>${p.kind === 'stock' ? money(p.price) : Math.round(p.price * 100) + '¢'}</b></div>
     <div class="item"><span>${L.qty}</span><b>${p.qty}</b></div>${p.condition ? `<div class="item"><span>${L.cond}</span><b>${L.dip(p.condition.pct)} (≤ ${money(p.target)})</b></div>` : ''}
+    ${(() => { const o = Core.outcome(p); return `<div class="item" id="wl" style="background:#f8fafc"><span>${p.kind === 'event' ? L.ifRight : L.ifUp}<br>${p.kind === 'event' ? L.ifWrong : L.ifDown}</span><b><span style="color:#16a34a">${p.kind === 'event' ? '+' + money(o.win) : (o.up >= 0 ? '+' : '−') + money(Math.abs(o.up))}</span><br><span class="err">${p.kind === 'event' ? '−' + money(o.lose) : (o.down >= 0 ? '+' : '−') + money(Math.abs(o.down))}</span></b></div>`; })()}
     <div class="row" style="margin-top:10px"><button class="alt" id="iCancel">${L.cancel}</button><button class="green" id="iConfirm">${L.confirm}</button></div></div>`;
   }
   $('#intent').innerHTML = `<h2>${L.it}</h2><textarea id="itext" rows="2" placeholder="${L.ph}"></textarea><div class="chips">${L.ex.map(e => `<button class="ex">${e}</button>`).join('')}</div>
@@ -80,7 +85,12 @@ function render() {
   const totPl = S.positions.reduce((a, p) => a + Core.pnl(p, mark(p)), 0);
   $('#portfolio').innerHTML = `<h2>${L.pf}</h2>` + (S.positions.length ? S.positions.map(p => `<div class="item pos"><span>${nm(find(p.market))} · ${L[p.side] || p.side}<br><span class="muted">${money(p.amount)} · ${p.qty} ${L.qty}</span></span><b>${money(Core.pnl(p, mark(p)))}</b></div>`).join('') : `<p class="muted">${L.none}</p>`)
     + (S.orders || []).map((o, i) => `<div class="item order"><span>⏳ ${nm(find(o.market))} · ${money(o.amount)}<br><span class="muted">${L.waitDip(money(o.target))}</span></span><button class="alt cancelOrder" data-i="${i}">${L.cancel}</button></div>`).join('')
-    + `<div class="item"><span>${L.feesPaid}</span><b id="feesPaid">${money(S.feesPaid)}</b></div><div class="item"><span>${L.pl}</span><b>${money(totPl)}</b></div><button class="alt" id="reset">${L.reset}</button>`;
+    + `<div class="item"><span>${L.feesPaid}</span><b id="feesPaid">${money(S.feesPaid)}</b></div><div class="item"><span>${L.pl}</span><b>${money(totPl)}</b></div><div class="row"><button class="alt" id="reset">${L.reset}</button><button class="alt" id="tourAgain">${L.tourAgain}</button></div>`;
+  let tour = document.getElementById('tour');
+  if (!S.tour) { if (!tour) { tour = document.createElement('div'); tour.id = 'tour'; document.body.appendChild(tour); }
+    const st = L.tour[tourStep]; tour.innerHTML = `<div class="tbox"><div class="muted">${tourStep + 1} / ${L.tour.length}</div><h2>${st[0]}</h2><p>${st[1]}</p>
+    <div class="row"><button class="alt" id="tSkip">${L.skip}</button><button class="green" id="tNext">${tourStep === L.tour.length - 1 ? L.start : L.nextStep}</button></div></div>`; }
+  else if (tour) tour.remove();
   $('#fees summary').textContent = L.feesT; $('#feesBody').innerHTML = `<p>${L.feesB}</p>`;
 }
 
@@ -105,6 +115,9 @@ document.addEventListener('click', (e) => {
     S.positions.push({ market: p.market, kind: p.kind, side: p.side, amount: p.amount, qty: p.qty, price: p.price }); pending = null; msg = '✓ ' + L.done; save(); }
   else if (e.target.classList.contains('arb')) { const v = Core.VENUES[+e.target.dataset.i]; const r = Core.arb(v.a, v.b, 100);
     if (S.balance < 100) { alert(L.e_funds); return; } S.balance = Core.round2(S.balance + r.net); S.feesPaid = Core.round2(S.feesPaid + r.fees); save(); alert(L.arbDone + ': ' + money(r.net)); }
+  else if (id === 'tSkip' || (id === 'tNext' && tourStep === L.tour.length - 1)) { S.tour = 1; save(); }
+  else if (id === 'tNext') { tourStep++; }
+  else if (id === 'tourAgain') { S.tour = 0; tourStep = 0; save(); }
   else if (id === 'nextDay') { S.dayOffset = (S.dayOffset || 0) + 1; fillOrders(); }
   else if (e.target.classList.contains('cancelOrder')) { const o = S.orders.splice(+e.target.dataset.i, 1)[0]; S.balance = Core.round2(S.balance + o.amount); save(); }
   else if (id === 'reset') { localStorage.removeItem('pm'); Object.assign(S, { balance: 0, positions: [], feesPaid: 0, orders: [], dayOffset: 0 }); dep = { step: 1 }; pending = null; msg = ''; save(); }

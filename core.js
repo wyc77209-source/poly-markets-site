@@ -102,7 +102,13 @@
   function shouldFill(order, price) { return price <= order.target; }
   const ORDER_DAYS = 14; // unfilled dip orders expire and refund after 14 demo days
   function orderStatus(order, price, day) { if (shouldFill(order, price)) return 'fill'; return day - order.day >= ORDER_DAYS ? 'expire' : 'wait'; }
+  // What you could win or lose. Event: pays $1 per share if right, $0 if wrong. Stock: a ±10% move.
+  function outcome(it) {
+    if (it.kind === 'event') return { win: round2(it.qty - it.amount), lose: round2(it.amount) };
+    const v = it.qty * it.price * 0.1, sgn = it.side === 'sell' ? -1 : 1;
+    return { up: round2(sgn * v), down: round2(-sgn * v), move: 10 };
+  }
   function pnl(pos, markPrice) { return round2(pos.qty * markPrice - pos.amount); }
-  const api = { FEE_BPS, MARKETS, STOCKS, VENUES, fee, arb, parseIntent, parseAmount, suggest, cnToNum, pnl, round2, priceAt, dayNum, dipTarget, shouldFill, hash, orderStatus, ORDER_DAYS };
+  const api = { FEE_BPS, MARKETS, STOCKS, VENUES, fee, arb, parseIntent, parseAmount, suggest, cnToNum, pnl, round2, priceAt, dayNum, dipTarget, shouldFill, hash, orderStatus, ORDER_DAYS, outcome };
   if (typeof module !== 'undefined') module.exports = api; else root.Core = api;
 })(this);
