@@ -77,7 +77,21 @@
       feeBps: FEE_BPS, fee: f, qty: round2((amount - f) / price),
     };
   }
+  // Deterministic daily drift: same date => same price for everyone. Example data only.
+  function hash(str) { let h = 2166136261; for (const c of str) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } h ^= h >>> 16; h = Math.imul(h, 2246822507); h ^= h >>> 13; h = Math.imul(h, 3266489909); h ^= h >>> 16; return (h >>> 0) / 4294967296; }
+  function priceAt(item, day) { // mean-reverting walk over the last 40 days: moves daily, never runs away
+    let dev = 0;
+    for (let d = day - 40; d <= day; d++) dev = 0.7 * dev + (hash(item.id + ":" + d) - 0.5) * 0.24;
+    if (item.price > 1) return round2(item.price * (1 + dev));
+    return Math.min(0.97, Math.max(0.03, round2(item.price + dev * 0.8)));
+  }
+  const dayNum = (date) => Math.floor(date.getTime() / 86400000);
+  // Pending dip order fills when price <= target.
+  function dipTarget(price, pct) { return round2(price * (1 - pct / 100)); }
+  function shouldFill(order, price) { return price <= order.target; }
+  const ORDER_DAYS = 14; // unfilled dip orders expire and refund after 14 demo days
+  function orderStatus(order, price, day) { if (shouldFill(order, price)) return 'fill'; return day - order.day >= ORDER_DAYS ? 'expire' : 'wait'; }
   function pnl(pos, markPrice) { return round2(pos.qty * markPrice - pos.amount); }
-  const api = { FEE_BPS, MARKETS, STOCKS, VENUES, fee, arb, parseIntent, parseAmount, cnToNum, pnl, round2 };
+  const api = { FEE_BPS, MARKETS, STOCKS, VENUES, fee, arb, parseIntent, parseAmount, cnToNum, pnl, round2, priceAt, dayNum, dipTarget, shouldFill, hash, orderStatus, ORDER_DAYS };
   if (typeof module !== 'undefined') module.exports = api; else root.Core = api;
 })(this);

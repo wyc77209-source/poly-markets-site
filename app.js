@@ -1,6 +1,6 @@
 const $ = (s) => document.querySelector(s);
 const T = {
-  zh: { banner: '模拟交易演示 · 非交易所 · 非投资建议 · Paper trading demo · Not an exchange · Not investment advice', other: 'English',
+  zh: { banner: '模拟交易演示 · 非交易所 · 非投资建议 / Paper demo · Not an exchange · Not advice', other: 'English',
     bal: '我的模拟余额', fake: '全部是假钱，只用来练习', dep: '第一步：选怎么充值（模拟）', card: '💳 银行卡', btc: '₿ 比特币',
     amt: '第二步：输入金额', go: '确认充值', arrived: '钱到账了！', newbal: '新余额', again: '再充一次', adv: '高级细节（可不看）',
     advCard: '模拟流程：授权 → 清算 → 入账。实际不会扣任何卡，不收集卡号。', advBtc: '模拟流程：生成演示地址 → 等待链上确认（假装 1 次）→ 入账。不显示真实钱包地址，不要发送任何比特币。',
@@ -13,8 +13,8 @@ const T = {
     radar: '🔍 价差雷达（练习套利）', rIntro: '同一件事，两个平台价格不同。两边各买一边，结果出来总能拿回 $1/对。下面算的是扣掉两边手续费后的结果（$100 练习）。',
     va: '平台A YES', vb: '平台B YES', spread: '价差', net: '扣费后', practice: '练习套利', pf: '我的持仓', none: '还没有持仓', feesPaid: '已付手续费', pl: '盈亏（按示例价格）', reset: '全部重置',
     feesT: '💰 收费说明（透明）', feesB: '我们只收一种看得见的费用：每笔成交金额的 0.30%（30 bps）。$100 收 $0.30。没有隐藏费用，不卖你的订单流（无 PFOF），不赚差价。这是演示，实际不收任何钱。',
-    done: '已下单（模拟）', arbDone: '已记录练习套利' },
-  en: { banner: 'Paper trading demo · Not an exchange · Not investment advice · 模拟交易演示 · 非交易所 · 非投资建议', other: '中文',
+    done: '已下单（模拟）', orderPlaced: '已挂单：等价格跌下来自动买入（模拟），14 天没跌到就退钱',  expired: '挂单 14 天没成交，钱已退回', day: '演示第几天：', next: '⏭ 下一天（价格会变）', waitDip: (x) => `等价格跌到 ${x} 再买`, arbDone: '已记录练习套利' },
+  en: { banner: 'Paper demo · Not an exchange · Not advice / 模拟交易演示 · 非交易所 · 非投资建议', other: '中文',
     bal: 'My practice balance', fake: 'All fake money, just for practice', dep: 'Step 1: pick how to add money (pretend)', card: '💳 Bank card', btc: '₿ Bitcoin',
     amt: 'Step 2: type an amount', go: 'Add money', arrived: 'Money arrived!', newbal: 'New balance', again: 'Add more', adv: 'Advanced details (optional)',
     advCard: 'Simulated: authorize → clear → credit. No card is charged and no card number is collected.', advBtc: 'Simulated: demo address → wait for 1 pretend confirmation → credit. No real wallet address is shown; do not send any bitcoin.',
@@ -27,16 +27,23 @@ const T = {
     radar: '🔍 Price-gap radar (practice arb)', rIntro: 'Same event, two venues, different prices. Buy one side on each and you always get $1 per pair back. Numbers below are after both fees ($100 practice).',
     va: 'Venue A YES', vb: 'Venue B YES', spread: 'Gap', net: 'After fees', practice: 'Practice arb', pf: 'My positions', none: 'No positions yet', feesPaid: 'Fees paid', pl: 'P&L (example prices)', reset: 'Reset all',
     feesT: '💰 Fees (transparent)', feesB: 'One visible fee only: 0.30% (30 bps) of each trade. $100 costs $0.30. No hidden fees, no selling your orders (no PFOF), no spread markup. This is a demo, nothing is actually charged.',
-    done: 'Order placed (paper)', arbDone: 'Practice arb recorded' },
+    done: 'Order placed (paper)', orderPlaced: 'Order waiting: buys automatically if the price dips within 14 days, else refunded (paper)', expired: 'Order not filled in 14 days, money returned', day: 'Demo day:', next: '⏭ Next day (prices move)', waitDip: (x) => `buys when price ≤ ${x}`, arbDone: 'Practice arb recorded' },
 };
-const S = Object.assign({ lang: 'zh', balance: 0, positions: [], feesPaid: 0 }, JSON.parse(localStorage.getItem('pm') || '{}'));
+const S = Object.assign({ lang: 'zh', balance: 0, positions: [], feesPaid: 0, orders: [], dayOffset: 0 }, JSON.parse(localStorage.getItem('pm') || '{}'));
 let dep = { step: 1, method: null }, pending = null, msg = '';
 const save = () => localStorage.setItem('pm', JSON.stringify(S));
 const t = () => T[S.lang];
 const money = (n) => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const nm = (o) => S.lang === 'zh' ? o.zh : o.en;
 const find = (id) => [...Core.MARKETS, ...Core.STOCKS].find(x => x.id === id);
-const mark = (p) => { const m = find(p.market); return p.kind === 'stock' ? m.price : (p.side === 'no' ? 1 - m.price : m.price); };
+const today = () => Core.dayNum(new Date()) + (S.dayOffset || 0);
+const cur = (id) => Core.priceAt(find(id), today());
+const sidePrice = (id, side) => { const m = find(id), p = cur(id); return m.price > 1 ? p : Core.round2(side === 'no' ? 1 - p : p); };
+const mark = (p) => sidePrice(p.market, p.side);
+function fillOrders() { S.orders = (S.orders || []).filter(o => { const px = cur(o.market), st = Core.orderStatus(o, px, today()); if (st === 'wait') return true;
+  if (st === 'expire') { S.balance = Core.round2(S.balance + o.amount); msg = '↩ ' + t().expired; return false; }
+  const fee = Core.fee(o.amount); S.feesPaid = Core.round2(S.feesPaid + fee);
+  S.positions.push({ market: o.market, kind: 'stock', side: 'buy', amount: o.amount, qty: Core.round2((o.amount - fee) / px), price: px }); return false; }); save(); }
 
 function render() {
   const L = t(); document.documentElement.lang = S.lang; $('#banner').textContent = L.banner; $('#lang').textContent = L.other;
@@ -56,14 +63,14 @@ function render() {
     c = `<div class="card" id="intentCard"><div class="item"><span>${L.market}</span><b>${nm(p)}</b></div><div class="item"><span>${L.side}</span><b>${sideTxt}</b></div>
     <div class="item"><span>${L.amount}</span><b>${money(p.amount)}</b></div><div class="item"><span>${L.fee}</span><b>${p.feeBps} bps = ${money(p.fee)}</b></div>
     <div class="item"><span>${L.price} <span class="tag">${L.sample}</span></span><b>${p.kind === 'stock' ? money(p.price) : Math.round(p.price * 100) + '¢'}</b></div>
-    <div class="item"><span>${L.qty}</span><b>${p.qty}</b></div>${p.condition ? `<div class="item"><span>${L.cond}</span><b>${L.dip(p.condition.pct)}</b></div>` : ''}
+    <div class="item"><span>${L.qty}</span><b>${p.qty}</b></div>${p.condition ? `<div class="item"><span>${L.cond}</span><b>${L.dip(p.condition.pct)} (≤ ${money(p.target)})</b></div>` : ''}
     <div class="row" style="margin-top:10px"><button class="alt" id="iCancel">${L.cancel}</button><button class="green" id="iConfirm">${L.confirm}</button></div></div>`;
   }
   $('#intent').innerHTML = `<h2>${L.it}</h2><textarea id="itext" rows="2" placeholder="${L.ph}"></textarea><div class="chips">${L.ex.map(e => `<button class="ex">${e}</button>`).join('')}</div>
     <button id="iParse" style="margin-top:8px;width:100%">${L.parse}</button><p id="iMsg" class="${msg.startsWith('✓') ? '' : 'err'}">${msg}</p>${c}`;
   // markets
-  $('#markets').innerHTML = `<h2>${L.mk} <span class="tag">${L.sample}</span></h2>` + Core.MARKETS.map(m => `<div class="item"><span>${nm(m)}</span><b>${Math.round(m.price * 100)}% ${L.chance}</b></div>`).join('')
-    + `<h2 style="margin-top:14px">${L.stocks} <span class="tag">${L.sample}</span></h2>` + Core.STOCKS.map(s => `<div class="item"><span>${nm(s)} (${s.id})</span><b>${money(s.price)}</b></div>`).join('');
+  $('#markets').innerHTML = `<h2>${L.mk} <span class="tag">${L.sample}</span></h2>` + Core.MARKETS.map(m => `<div class="item"><span>${nm(m)}</span><b>${Math.round(cur(m.id) * 100)}% ${L.chance}</b></div>`).join('')
+    + `<h2 style="margin-top:14px">${L.stocks} <span class="tag">${L.sample}</span></h2>` + Core.STOCKS.map(s => `<div class="item"><span>${nm(s)} (${s.id})</span><b class="sp">${money(cur(s.id))}</b></div>`).join('') + `<div class="row" style="margin-top:10px"><span class="muted" id="dayLbl">${L.day} ${S.dayOffset || 0}</span><button class="alt" id="nextDay">${L.next}</button></div>`;
   // radar
   $('#radar summary').textContent = L.radar;
   $('#radarBody').innerHTML = `<p class="muted">${L.rIntro} <span class="tag">${L.sample}</span></p>` + Core.VENUES.map((v, i) => { const r = Core.arb(v.a, v.b, 100);
@@ -72,6 +79,7 @@ function render() {
   // portfolio
   const totPl = S.positions.reduce((a, p) => a + Core.pnl(p, mark(p)), 0);
   $('#portfolio').innerHTML = `<h2>${L.pf}</h2>` + (S.positions.length ? S.positions.map(p => `<div class="item pos"><span>${nm(find(p.market))} · ${L[p.side] || p.side}<br><span class="muted">${money(p.amount)} · ${p.qty} ${L.qty}</span></span><b>${money(Core.pnl(p, mark(p)))}</b></div>`).join('') : `<p class="muted">${L.none}</p>`)
+    + (S.orders || []).map((o, i) => `<div class="item order"><span>⏳ ${nm(find(o.market))} · ${money(o.amount)}<br><span class="muted">${L.waitDip(money(o.target))}</span></span><button class="alt cancelOrder" data-i="${i}">${L.cancel}</button></div>`).join('')
     + `<div class="item"><span>${L.feesPaid}</span><b id="feesPaid">${money(S.feesPaid)}</b></div><div class="item"><span>${L.pl}</span><b>${money(totPl)}</b></div><button class="alt" id="reset">${L.reset}</button>`;
   $('#fees summary').textContent = L.feesT; $('#feesBody').innerHTML = `<p>${L.feesB}</p>`;
 }
@@ -86,15 +94,18 @@ document.addEventListener('click', (e) => {
     setTimeout(() => { S.balance = Core.round2(S.balance + a); save(); dep.step = 3; render(); }, 700); return; }
   else if (e.target.classList.contains('ex')) { $('#itext').value = e.target.textContent; return; }
   else if (id === 'iParse') { const r = Core.parseIntent($('#itext').value); const txt = $('#itext').value;
-    if (r.ok) { pending = r; msg = ''; } else { pending = null; msg = L['e_' + r.error]; } render(); $('#itext').value = txt; return; }
+    if (r.ok) { r.price = sidePrice(r.market, r.side); r.qty = Core.round2((r.amount - r.fee) / r.price); if (r.condition) r.target = Core.dipTarget(r.price, r.condition.pct); pending = r; msg = ''; } else { pending = null; msg = L['e_' + r.error]; } render(); $('#itext').value = txt; return; }
   else if (id === 'iCancel') { pending = null; msg = ''; }
   else if (id === 'iConfirm') { const p = pending; if (p.amount > S.balance) { msg = L.e_funds; render(); return; }
+    if (p.condition) { S.balance = Core.round2(S.balance - p.amount); S.orders.push({ market: p.market, amount: p.amount, pct: p.condition.pct, target: p.target, day: today() }); pending = null; msg = '✓ ' + L.orderPlaced; save(); fillOrders(); render(); return; }
     S.balance = Core.round2(S.balance - p.amount); S.feesPaid = Core.round2(S.feesPaid + p.fee);
     S.positions.push({ market: p.market, kind: p.kind, side: p.side, amount: p.amount, qty: p.qty, price: p.price }); pending = null; msg = '✓ ' + L.done; save(); }
   else if (e.target.classList.contains('arb')) { const v = Core.VENUES[+e.target.dataset.i]; const r = Core.arb(v.a, v.b, 100);
     if (S.balance < 100) { alert(L.e_funds); return; } S.balance = Core.round2(S.balance + r.net); S.feesPaid = Core.round2(S.feesPaid + r.fees); save(); alert(L.arbDone + ': ' + money(r.net)); }
-  else if (id === 'reset') { localStorage.removeItem('pm'); Object.assign(S, { balance: 0, positions: [], feesPaid: 0 }); dep = { step: 1 }; pending = null; msg = ''; save(); }
+  else if (id === 'nextDay') { S.dayOffset = (S.dayOffset || 0) + 1; fillOrders(); }
+  else if (e.target.classList.contains('cancelOrder')) { const o = S.orders.splice(+e.target.dataset.i, 1)[0]; S.balance = Core.round2(S.balance + o.amount); save(); }
+  else if (id === 'reset') { localStorage.removeItem('pm'); Object.assign(S, { balance: 0, positions: [], feesPaid: 0, orders: [], dayOffset: 0 }); dep = { step: 1 }; pending = null; msg = ''; save(); }
   else return;
   render();
 });
-render();
+fillOrders(); render();
