@@ -1,6 +1,7 @@
 // Pure logic: markets, fee math, intent parser. Works in browser and node.
 (function (root) {
   const FEE_BPS = 30; // visible commission: 30 bps = 0.30%
+  const FX_CNY = 7.2; // 示例汇率 example rate: 1 USD = 7.2 CNY demo units
   const MARKETS = [
     { id: 'fed-cut', zh: '美联储下个月降息', en: 'Fed cuts rates next month', price: 0.62, kw: ['美联储', '降息', 'fed', 'rate cut', 'cut rates', 'interest'] },
     { id: 'btc-100k', zh: '比特币年底高于10万美元', en: 'Bitcoin above $100k by year end', price: 0.48, kw: ['比特币', 'btc', 'bitcoin', '10万', '100k'] },
@@ -37,8 +38,10 @@
     for (const ch of s) { const v = CN_NUM[ch]; if (v >= 10) { total += (cur || 1) * v; cur = 0; } else cur = v; }
     return total + cur;
   }
+  // 块/元/RMB/人民币/¥ => CNY; everything else ($, 刀, dollars, bare numbers) => USD
+  function currencyOf(t) { return /[¥￥]\s*\d|\d\s*(k|千|万)?\s*(块|元|rmb|人民币|cny|yuan)|[一二两三四五六七八九十百千万]+\s*(块|元)/i.test(t) && !/\d\s*(美元|刀)/.test(t.replace(/90美元/, '')) ? 'CNY' : 'USD'; }
   function parseAmount(t) {
-    let m = t.match(/[$¥￥]\s*(\d+(?:\.\d+)?)\s*(k|千|万)?/i) || t.match(/(\d+(?:\.\d+)?)\s*(k|千|万)?\s*(块|元|刀|美元|美金|dollars?|bucks|usd|rmb)/i)
+    let m = t.match(/[$¥￥]\s*(\d+(?:\.\d+)?)\s*(k|千|万)?/i) || t.match(/(\d+(?:\.\d+)?)\s*(k|千|万)?\s*(块|元|刀|美元|美金|dollars?|bucks|usd|rmb|人民币|cny|yuan)/i)
       || t.match(/(?:押|买|bet|buy|put|下注)\s*(\d+(?:\.\d+)?)\s*(k|千|万)?/i);
     if (m) { let n = parseFloat(m[1]); const u = (m[2] || '').toLowerCase(); if (u === 'k' || u === '千') n *= 1000; if (u === '万') n *= 10000; return n; }
     m = t.match(/([一二两三四五六七八九十百千万]+)\s*(块|元|刀)/);
@@ -58,20 +61,22 @@
   // "Did you mean": char-overlap between each keyword (3+ chars) and same-length windows of the text.
   function overlap(a, b) { const m = {}; for (const c of a) m[c] = (m[c] || 0) + 1; let n = 0; for (const c of b) if (m[c] > 0) { m[c]--; n++; } return n / a.length; }
   function suggest(t) {
-    const l = t.toLowerCase(), all = [...STOCKS, ...MARKETS], scored = [];
+    const strip = (x) => x.toLowerCase().replace(/[\d\s.,$¥￥%]/g, ''), l = strip(t), all = [...STOCKS, ...MARKETS], scored = [];
     for (const it of all) { let best = 0;
-      for (const k of it.kw) { if ([...k].length < 3) continue; const ch = [...l];
-        for (let i = 0; i + [...k].length <= ch.length; i++) best = Math.max(best, overlap(k, ch.slice(i, i + [...k].length).join(''))); }
-      if (best >= 0.6) scored.push([best, it.id]); }
+      for (const k0 of it.kw) { const k = strip(k0), n = [...k].length; const cjk = /[\u4e00-\u9fff]/.test(k); if (n < (cjk ? 3 : 5)) continue; const ch = [...l], need = cjk && n <= 3 ? 0.66 : 0.75;
+        for (let i = 0; i + n <= ch.length; i++) { const o = overlap(k, ch.slice(i, i + n).join('')); if (o >= need) best = Math.max(best, o); } }
+      if (best >= 0.66) scored.push([best, it.id]); }
     scored.sort((a, b) => b[0] - a[0]);
-    return scored.length ? scored.slice(0, 3).map(x => x[1]) : ['fed-cut', 'btc-100k', 'TSLA'];
+    return scored.slice(0, 3).map(x => x[1]); // empty => UI shows example sentences instead
   }
   function parseIntent(text) {
     const t = String(text || '').trim();
     if (!t) return { ok: false, error: 'empty' };
     const item = findItem(t);
     if (!item) return { ok: false, error: 'no_market', suggest: suggest(t) };
-    const amount = parseAmount(t.replace(/10万|100k|\$?90|2亿|\$?200m|2030/gi, ' '));
+    const clean = t.replace(/10万|100k|\$?90(美元)?|2亿|\$?200m|2030/gi, ' ');
+    const amountIn = parseAmount(clean), currency = currencyOf(clean);
+    const amount = amountIn && (currency === 'CNY' ? round2(amountIn / FX_CNY) : amountIn);
     if (!amount || amount <= 0) return { ok: false, error: 'no_amount', market: item.id };
     const l = t.toLowerCase();
     const neg = /不会|不了|不到|不破|不超过|不可能|不降|不涨|不下|不赢|没有|反对|做空|卖空|short|won't|will not|not |no\b|against|sell/.test(l);
@@ -83,8 +88,8 @@
     const price = item.kind === 'event' ? (side === 'yes' ? item.price : round2(1 - item.price)) : item.price;
     const f = fee(amount);
     return {
-      ok: true, kind: item.kind, market: item.id, zh: item.zh, en: item.en, side, amount: round2(amount),
-      price, condition: dip ? { type: 'dip', pct: pct ? +pct : 5 } : null,
+      ok: true, kind: item.kind, market: item.id, zh: item.zh, en: item.en, side, amount: round2(amount), amountIn: round2(amountIn), currency,
+      price, condition: dip ? { type: 'dip', pct: pct ? +pct : 3 } : null,
       feeBps: FEE_BPS, fee: f, qty: round2((amount - f) / price),
     };
   }
@@ -100,15 +105,19 @@
   // Pending dip order fills when price <= target.
   function dipTarget(price, pct) { return round2(price * (1 - pct / 100)); }
   function shouldFill(order, price) { return price <= order.target; }
+  // How long a dip order usually waits: replay the last 200 demo days (deterministic).
+  function dipStats(item, pct, day) { const w = [];
+    for (let s = day - 200; s < day; s++) { const t = priceAt(item, s) * (1 - pct / 100); let k = 1; while (k <= 60 && priceAt(item, s + k) > t) k++; w.push(k); }
+    w.sort((a, b) => a - b); return { median: w[100], in14: round2(w.filter(x => x <= 14).length / w.length) }; }
   const ORDER_DAYS = 14; // unfilled dip orders expire and refund after 14 demo days
   function orderStatus(order, price, day) { if (shouldFill(order, price)) return 'fill'; return day - order.day >= ORDER_DAYS ? 'expire' : 'wait'; }
   // What you could win or lose. Event: pays $1 per share if right, $0 if wrong. Stock: a ±10% move.
   function outcome(it) {
     if (it.kind === 'event') return { win: round2(it.qty - it.amount), lose: round2(it.amount) };
-    const v = it.qty * it.price * 0.1, sgn = it.side === 'sell' ? -1 : 1;
-    return { up: round2(sgn * v), down: round2(-sgn * v), move: 10 };
+    const val = it.qty * it.price, base = val - it.amount, v = val * 0.1, sgn = it.side === 'sell' ? -1 : 1; // base = -fee
+    return { up: round2(base + sgn * v), down: round2(base - sgn * v), move: 10 };
   }
   function pnl(pos, markPrice) { return round2(pos.qty * markPrice - pos.amount); }
-  const api = { FEE_BPS, MARKETS, STOCKS, VENUES, fee, arb, parseIntent, parseAmount, suggest, cnToNum, pnl, round2, priceAt, dayNum, dipTarget, shouldFill, hash, orderStatus, ORDER_DAYS, outcome };
+  const api = { FEE_BPS, MARKETS, STOCKS, VENUES, fee, arb, parseIntent, parseAmount, suggest, cnToNum, pnl, round2, priceAt, dayNum, dipTarget, shouldFill, hash, orderStatus, ORDER_DAYS, outcome, FX_CNY, currencyOf, dipStats };
   if (typeof module !== 'undefined') module.exports = api; else root.Core = api;
 })(this);

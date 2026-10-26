@@ -8,7 +8,7 @@ const T = {
     ex: ['我觉得美联储下个月降息，押 50 块', '比特币年底到不了10万，押20块', 'buy $100 of Tesla if it dips'],
     market: '市场', side: '方向', amount: '金额', fee: '手续费', price: '示例价格', qty: '份数', cond: '条件', dip: (p) => `跌 ${p}% 再买`,
     yes: '会发生 (YES)', no: '不会发生 (NO)', buy: '买入', sell: '卖出', confirm: '确认下单（模拟）', cancel: '取消',
-    e_empty: '请先写点什么', e_no_market: '没认出是哪个市场。', dym: '你是不是想说：', e_no_amount: '没看到金额，加一句“押 50 块”', e_funds: '余额不够，先充值',
+    e_empty: '请先写点什么', e_no_market: '没认出是哪个市场。', dym: '你是不是想说：', tryEx: '可以这样写，点一下试试：', fx: '示例汇率：1 美元 = 7.2 元', wait: (st) => `通常要等约 ${st.median} 天；14 天内买到的机会约 ${Math.round(st.in14 * 100)}%（没买到就退钱）`, e_no_amount: '没看到金额，加一句“押 50 块”', e_funds: '余额不够，先充值',
     mk: '事件市场', sample: '示例数据', stocks: '股票（示例价格）', chance: '概率',
     radar: '🔍 价差雷达（练习套利）', rIntro: '同一件事，两个平台价格不同。两边各买一边，结果出来总能拿回 $1/对。下面算的是扣掉两边手续费后的结果（$100 练习）。',
     va: '平台A YES', vb: '平台B YES', spread: '价差', net: '扣费后', practice: '练习套利', pf: '我的持仓', none: '还没有持仓', feesPaid: '已付手续费', pl: '盈亏（按示例价格）', reset: '全部重置',
@@ -24,7 +24,7 @@ const T = {
     ex: ['I think the Fed cuts rates next month, bet $50', 'Bitcoin will not hit 100k, bet $20', 'buy $100 of Tesla if it dips'],
     market: 'Market', side: 'Side', amount: 'Amount', fee: 'Fee', price: 'Example price', qty: 'Shares', cond: 'Condition', dip: (p) => `buy after a ${p}% dip`,
     yes: 'Will happen (YES)', no: 'Won\'t happen (NO)', buy: 'Buy', sell: 'Sell', confirm: 'Confirm (paper)', cancel: 'Cancel',
-    e_empty: 'Type something first', e_no_market: 'Could not tell which market.', dym: 'Did you mean:', e_no_amount: 'No amount found. Add "bet $50"', e_funds: 'Not enough balance. Add money first',
+    e_empty: 'Type something first', e_no_market: 'Could not tell which market.', dym: 'Did you mean:', tryEx: 'Try writing it like this (tap one):', fx: 'Example rate: 1 USD = 7.2 CNY', wait: (st) => `Usually waits about ${st.median} day(s); about ${Math.round(st.in14 * 100)}% chance it buys within 14 days (else refunded)`, e_no_amount: 'No amount found. Add "bet $50"', e_funds: 'Not enough balance. Add money first',
     mk: 'Event markets', sample: 'Example data', stocks: 'Stocks (example prices)', chance: 'chance',
     radar: '🔍 Price-gap radar (practice arb)', rIntro: 'Same event, two venues, different prices. Buy one side on each and you always get $1 per pair back. Numbers below are after both fees ($100 practice).',
     va: 'Venue A YES', vb: 'Venue B YES', spread: 'Gap', net: 'After fees', practice: 'Practice arb', pf: 'My positions', none: 'No positions yet', feesPaid: 'Fees paid', pl: 'P&L (example prices)', reset: 'Reset all',
@@ -37,6 +37,7 @@ const S = Object.assign({ lang: 'zh', balance: 0, positions: [], feesPaid: 0, or
 let tourStep = 0, dep = { step: 1, method: null }, pending = null, msg = '';
 const save = () => localStorage.setItem('pm', JSON.stringify(S));
 const t = () => T[S.lang];
+const mc = (usd, c, local) => c === 'CNY' ? `¥${(local != null ? local : usd * Core.FX_CNY).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span class="muted">≈ ${money(usd)}</span>` : money(usd);
 const money = (n) => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const nm = (o) => S.lang === 'zh' ? o.zh : o.en;
 const find = (id) => [...Core.MARKETS, ...Core.STOCKS].find(x => x.id === id);
@@ -47,11 +48,11 @@ const mark = (p) => sidePrice(p.market, p.side);
 function fillOrders() { S.orders = (S.orders || []).filter(o => { const px = cur(o.market), st = Core.orderStatus(o, px, today()); if (st === 'wait') return true;
   if (st === 'expire') { S.balance = Core.round2(S.balance + o.amount); msg = '↩ ' + t().expired; return false; }
   const fee = Core.fee(o.amount); S.feesPaid = Core.round2(S.feesPaid + fee);
-  S.positions.push({ market: o.market, kind: 'stock', side: 'buy', amount: o.amount, qty: Core.round2((o.amount - fee) / px), price: px }); return false; }); save(); }
+  S.positions.push({ market: o.market, kind: 'stock', side: 'buy', amount: o.amount, currency: o.currency, amountIn: o.amountIn, qty: Core.round2((o.amount - fee) / px), price: px }); return false; }); save(); }
 
 function render() {
   const L = t(); document.documentElement.lang = S.lang; $('#banner').textContent = L.banner; $('#lang').textContent = L.other;
-  $('#bal').innerHTML = `<div class="muted">${L.bal}</div><div class="big" id="balance">${money(S.balance)}</div><div class="muted" style="text-align:center">${L.fake}</div>`;
+  $('#bal').innerHTML = `<div class="muted">${L.bal}</div><div class="big" id="balance">${money(S.balance)}</div>${S.lang === 'zh' ? `<div class="muted" style="text-align:center">≈ ¥${(S.balance * Core.FX_CNY).toFixed(2)}（${L.fx}）</div>` : ''}<div class="muted" style="text-align:center">${L.fake}</div>`;
   // deposit
   let d = '';
   if (dep.step === 1) d = `<h2>${L.dep}</h2><div class="row"><button id="mCard">${L.card}</button><button id="mBtc">${L.btc}</button></div>`;
@@ -63,12 +64,12 @@ function render() {
   // intent
   let c = '';
   if (pending) {
-    const p = pending; const sideTxt = L[p.side];
+    const p = pending; const sideTxt = L[p.side]; const M = (x) => mc(x, p.currency, x === p.amount ? p.amountIn : null);
     c = `<div class="card" id="intentCard"><div class="item"><span>${L.market}</span><b>${nm(p)}</b></div><div class="item"><span>${L.side}</span><b>${sideTxt}</b></div>
-    <div class="item"><span>${L.amount}</span><b>${money(p.amount)}</b></div><div class="item"><span>${L.fee}</span><b>${p.feeBps} bps = ${money(p.fee)}</b></div>
+    <div class="item"><span>${L.amount}</span><b>${M(p.amount)}</b></div><div class="item"><span>${L.fee}</span><b>${p.feeBps} bps = ${M(p.fee)}</b></div>
     <div class="item"><span>${L.price} <span class="tag">${L.sample}</span></span><b>${p.kind === 'stock' ? money(p.price) : Math.round(p.price * 100) + '¢'}</b></div>
-    <div class="item"><span>${L.qty}</span><b>${p.qty}</b></div>${p.condition ? `<div class="item"><span>${L.cond}</span><b>${L.dip(p.condition.pct)} (≤ ${money(p.target)})</b></div>` : ''}
-    ${(() => { const o = Core.outcome(p); return `<div class="item" id="wl" style="background:#f8fafc"><span>${p.kind === 'event' ? L.ifRight : L.ifUp}<br>${p.kind === 'event' ? L.ifWrong : L.ifDown}</span><b><span style="color:#16a34a">${p.kind === 'event' ? '+' + money(o.win) : (o.up >= 0 ? '+' : '−') + money(Math.abs(o.up))}</span><br><span class="err">${p.kind === 'event' ? '−' + money(o.lose) : (o.down >= 0 ? '+' : '−') + money(Math.abs(o.down))}</span></b></div>`; })()}
+    <div class="item"><span>${L.qty}</span><b>${p.qty}</b></div>${p.condition ? `<div class="item"><span>${L.cond}</span><b>${L.dip(p.condition.pct)} (≤ ${money(p.target)})</b></div><p class="muted" id="waitTxt">${L.wait(Core.dipStats(find(p.market), p.condition.pct, today()))}</p>` : ''}${p.currency === 'CNY' ? `<p class="muted" id="fxNote">${L.fx}</p>` : ''}
+    ${(() => { const o = Core.outcome(p); return `<div class="item" id="wl" style="background:#f8fafc"><span>${p.kind === 'event' ? L.ifRight : L.ifUp}<br>${p.kind === 'event' ? L.ifWrong : L.ifDown}</span><b><span style="color:#16a34a">${p.kind === 'event' ? '+' + M(o.win) : (o.up >= 0 ? '+' : '−') + M(Math.abs(o.up))}</span><br><span class="err">${p.kind === 'event' ? '−' + M(o.lose) : (o.down >= 0 ? '+' : '−') + M(Math.abs(o.down))}</span></b></div>`; })()}
     <div class="row" style="margin-top:10px"><button class="alt" id="iCancel">${L.cancel}</button><button class="green" id="iConfirm">${L.confirm}</button></div></div>`;
   }
   $('#intent').innerHTML = `<h2>${L.it}</h2><textarea id="itext" rows="2" placeholder="${L.ph}"></textarea><div class="chips">${L.ex.map(e => `<button class="ex">${e}</button>`).join('')}</div>
@@ -83,8 +84,8 @@ function render() {
     <div>${L.net}: <b class="${r.net > 0 ? '' : 'err'}">${money(r.net)}</b> <span class="muted">(${money(r.gross)} − ${money(r.fees)})</span></div><button class="alt arb" data-i="${i}" style="margin-top:6px">${L.practice}</button></div>`; }).join('');
   // portfolio
   const totPl = S.positions.reduce((a, p) => a + Core.pnl(p, mark(p)), 0);
-  $('#portfolio').innerHTML = `<h2>${L.pf}</h2>` + (S.positions.length ? S.positions.map(p => `<div class="item pos"><span>${nm(find(p.market))} · ${L[p.side] || p.side}<br><span class="muted">${money(p.amount)} · ${p.qty} ${L.qty}</span></span><b>${money(Core.pnl(p, mark(p)))}</b></div>`).join('') : `<p class="muted">${L.none}</p>`)
-    + (S.orders || []).map((o, i) => `<div class="item order"><span>⏳ ${nm(find(o.market))} · ${money(o.amount)}<br><span class="muted">${L.waitDip(money(o.target))}</span></span><button class="alt cancelOrder" data-i="${i}">${L.cancel}</button></div>`).join('')
+  $('#portfolio').innerHTML = `<h2>${L.pf}</h2>` + (S.positions.length ? S.positions.map(p => `<div class="item pos"><span>${nm(find(p.market))} · ${L[p.side] || p.side}<br><span class="muted">${mc(p.amount, p.currency, p.amountIn)} · ${p.qty} ${L.qty}</span></span><b>${money(Core.pnl(p, mark(p)))}</b></div>`).join('') : `<p class="muted">${L.none}</p>`)
+    + (S.orders || []).map((o, i) => `<div class="item order"><span>⏳ ${nm(find(o.market))} · ${money(o.amount)}<br><span class="muted">${L.waitDip(money(o.target))} · ${L.wait(Core.dipStats(find(o.market), o.pct, o.day))}</span></span><button class="alt cancelOrder" data-i="${i}">${L.cancel}</button></div>`).join('')
     + `<div class="item"><span>${L.feesPaid}</span><b id="feesPaid">${money(S.feesPaid)}</b></div><div class="item"><span>${L.pl}</span><b>${money(totPl)}</b></div><div class="row"><button class="alt" id="reset">${L.reset}</button><button class="alt" id="tourAgain">${L.tourAgain}</button></div>`;
   let tour = document.getElementById('tour');
   if (!S.tour) { if (!tour) { tour = document.createElement('div'); tour.id = 'tour'; document.body.appendChild(tour); }
@@ -104,15 +105,16 @@ document.addEventListener('click', (e) => {
     setTimeout(() => { S.balance = Core.round2(S.balance + a); save(); dep.step = 3; render(); }, 700); return; }
   else if (e.target.classList.contains('ex')) { $('#itext').value = e.target.textContent; return; }
   else if (id === 'iParse') { const r = Core.parseIntent($('#itext').value); const txt = $('#itext').value;
-    if (!r.ok && r.suggest) msg = L.e_no_market + '<br>' + L.dym + ' ' + r.suggest.map(id => `<button class="alt dym" data-id="${id}" style="padding:6px 10px;margin:4px">${nm(find(id))}</button>`).join('');
+    if (!r.ok && r.suggest && !r.suggest.length) msg = L.e_no_market + '<br>' + L.tryEx + ' ' + L.ex.map(x => `<button class="alt ex" style="padding:6px 10px;margin:4px">${x}</button>`).join('');
+    if (!r.ok && r.suggest && r.suggest.length) msg = L.e_no_market + '<br>' + L.dym + ' ' + r.suggest.map(id => `<button class="alt dym" data-id="${id}" style="padding:6px 10px;margin:4px">${nm(find(id))}</button>`).join('');
     if (r.ok) { r.price = sidePrice(r.market, r.side); r.qty = Core.round2((r.amount - r.fee) / r.price); if (r.condition) r.target = Core.dipTarget(r.price, r.condition.pct); pending = r; msg = ''; } else { pending = null; if (!r.suggest) msg = L['e_' + r.error]; } render(); $('#itext').value = txt; return; }
-  else if (e.target.classList.contains('dym')) { const m = find(e.target.dataset.id), ta = $('#itext'), amt = Core.parseAmount(ta.value);
-    ta.value = (S.lang === 'zh' ? m.zh : m.en) + (amt ? (S.lang === 'zh' ? `，押 ${amt} 块` : `, bet $${amt}`) : ''); msg = ''; $('#iMsg').innerHTML = ''; $('#iParse').click(); return; }
+  else if (e.target.classList.contains('dym')) { const m = find(e.target.dataset.id), ta = $('#itext'), amt = Core.parseAmount(ta.value), cny = Core.currencyOf(ta.value) === 'CNY';
+    ta.value = (S.lang === 'zh' ? m.zh : m.en) + (amt ? (S.lang === 'zh' ? (cny ? `，押 ${amt} 块` : `，押 $${amt}`) : (cny ? `, bet ${amt} yuan` : `, bet $${amt}`)) : ''); msg = ''; $('#iMsg').innerHTML = ''; $('#iParse').click(); return; }
   else if (id === 'iCancel') { pending = null; msg = ''; }
   else if (id === 'iConfirm') { const p = pending; if (p.amount > S.balance) { msg = L.e_funds; render(); return; }
-    if (p.condition) { S.balance = Core.round2(S.balance - p.amount); S.orders.push({ market: p.market, amount: p.amount, pct: p.condition.pct, target: p.target, day: today() }); pending = null; msg = '✓ ' + L.orderPlaced; save(); fillOrders(); render(); return; }
+    if (p.condition) { S.balance = Core.round2(S.balance - p.amount); S.orders.push({ market: p.market, amount: p.amount, currency: p.currency, amountIn: p.amountIn, pct: p.condition.pct, target: p.target, day: today() }); pending = null; msg = '✓ ' + L.orderPlaced; save(); fillOrders(); render(); return; }
     S.balance = Core.round2(S.balance - p.amount); S.feesPaid = Core.round2(S.feesPaid + p.fee);
-    S.positions.push({ market: p.market, kind: p.kind, side: p.side, amount: p.amount, qty: p.qty, price: p.price }); pending = null; msg = '✓ ' + L.done; save(); }
+    S.positions.push({ market: p.market, kind: p.kind, side: p.side, amount: p.amount, qty: p.qty, price: p.price, currency: p.currency, amountIn: p.amountIn }); pending = null; msg = '✓ ' + L.done; save(); }
   else if (e.target.classList.contains('arb')) { const v = Core.VENUES[+e.target.dataset.i]; const r = Core.arb(v.a, v.b, 100);
     if (S.balance < 100) { alert(L.e_funds); return; } S.balance = Core.round2(S.balance + r.net); S.feesPaid = Core.round2(S.feesPaid + r.fees); save(); alert(L.arbDone + ': ' + money(r.net)); }
   else if (id === 'tSkip' || (id === 'tNext' && tourStep === L.tour.length - 1)) { S.tour = 1; save(); }
